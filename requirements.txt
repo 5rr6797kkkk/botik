@@ -1,13 +1,1 @@
-asyncio
 aiogram
-Bot
-Dispatcher
-F
-aiogram.types
-BusinessConnection
-Message
-BusinessMessagesDeleted
-aiogram.client.default
-DefaultBotProperties
-aiogram.enums
-ParseMode
