@@ -4,7 +4,7 @@ from aiogram.types import BusinessConnection, Message, BusinessMessagesDeleted
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-TOKEN = "8802732829:AAHfc6WESqiX6SpHpoleqyAI4EPDGlXEPB0"
+TOKEN = ""
 ADMIN_ID = 1250562983  # ВАШ ЛИЧНЫЙ ЧИСЛОВОЙ ID
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
