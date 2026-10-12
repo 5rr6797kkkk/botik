@@ -1,10 +1,12 @@
 import asyncio
+import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import BusinessConnection, Message, BusinessMessagesDeleted
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-TOKEN = ""
+# Берем токен из скрытых переменных окружения GitHub Actions
+TOKEN = os.getenv('BOT_TOKEN') 
 ADMIN_ID = 1250562983  # ВАШ ЛИЧНЫЙ ЧИСЛОВОЙ ID
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -13,7 +15,7 @@ dp = Dispatcher()
 # Оперативная память
 msg_cache = {}        
 users_db = {}         
-connections_map = {}  
+connections_map = {} 
 
 def get_user_info(user):
     if not user:
