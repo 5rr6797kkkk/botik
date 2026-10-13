@@ -1,11 +1,11 @@
 import asyncio
 import os
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import BusinessConnection, Message, BusinessMessagesDeleted
+from aiogram.types import BusinessConnection, Message, BusinessMessagesDeleted, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-# Берем токен из скрытых переменных окружения GitHub Actions
+# Берем токен из скрытых переменных окружения
 TOKEN = os.getenv('BOT_TOKEN') 
 ADMIN_ID = 1250562983  # ВАШ ЛИЧНЫЙ ЧИСЛОВОЙ ID
 
@@ -16,13 +16,33 @@ dp = Dispatcher()
 msg_cache = {}        
 users_db = {}         
 connections_map = {} 
+user_settings = {} # Хранилище настроек пользователей
 
+# Вспомогательные функции
 def get_user_info(user):
     if not user:
         return "Собеседник"
     name = user.full_name
     username = f"(@{user.username})" if user.username else ""
     return f"{name} {username} <code>[ID: {user.id}]</code>".replace("  ", " ")
+
+def get_owner(connection_id):
+    return connections_map.get(connection_id) or ADMIN_ID
+
+def get_settings(user_id):
+    if user_id not in user_settings:
+        # По умолчанию все модули включены
+        user_settings[user_id] = {"deleted": True, "edited": True, "view_once": True}
+    return user_settings[user_id]
+
+# Клавиатура настроек
+def settings_keyboard(user_id):
+    s = get_settings(user_id)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{'🟢' if s['deleted'] else '🔴'} Удаленные сообщения", callback_data="set_deleted")],
+        [InlineKeyboardButton(text=f"{'🟢' if s['edited'] else '🔴'} Измененные сообщения", callback_data="set_edited")],
+        [InlineKeyboardButton(text=f"{'🟢' if s['view_once'] else '🔴'} Одноразовые медиа", callback_data="set_view_once")]
+    ])
 
 # 1. АДМИН-ПАНЕЛЬ
 @dp.message(F.text == "/admin")
@@ -41,7 +61,34 @@ async def admin_panel(message: Message):
     text += "👁 <i>Глобальный мониторинг активен.</i>"
     await message.answer(text)
 
-# 2. ИНСТРУКЦИЯ ПРИ СТАРТЕ
+# 2. МЕНЮ НАСТРОЕК
+@dp.message(F.text == "/settings")
+async def open_settings(message: Message):
+    text = (
+        "🎛 <b>ПАНЕЛЬ НАСТРОЕК</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Кликайте по кнопкам ниже, чтобы включать или отключать нужные модули перехвата."
+    )
+    await message.answer(text, reply_markup=settings_keyboard(message.from_user.id))
+
+# Обработка нажатий кнопок настроек
+@dp.callback_query(F.data.startswith("set_"))
+async def process_settings_callback(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    setting_key = callback.data.replace("set_", "")
+    
+    # Меняем статус на противоположный
+    current_settings = get_settings(user_id)
+    current_settings[setting_key] = not current_settings[setting_key]
+    
+    # Обновляем клавиатуру
+    await callback.message.edit_reply_markup(reply_markup=settings_keyboard(user_id))
+    
+    # Всплывающее уведомление
+    status_text = "включен" if current_settings[setting_key] else "отключен"
+    await callback.answer(f"Модуль {status_text}!", show_alert=False)
+
+# 3. ИНСТРУКЦИЯ ПРИ СТАРТЕ
 @dp.message()
 async def private_messages(message: Message):
     users_db[message.from_user.id] = {
@@ -52,16 +99,16 @@ async def private_messages(message: Message):
     instruction = (
         "🌌 <b>СИСТЕМА АВТОМАТИЗАЦИИ ЧАТОВ</b> 🌌\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Чтобы бот начал перехватывать удаленные сообщения, измененный текст и одноразовые медиа, его нужно подключить к вашему аккаунту.\n\n"
-        "⚙️ <b>Как подключить (3 простых шага):</b>\n"
-        "1️⃣ Зайдите в <b>Настройки Telegram</b> -> <b>Telegram для бизнеса</b> -> <b>Чат-боты</b>.\n"
-        "2️⃣ Вставьте юзернейм этого бота и добавьте его.\n"
-        "3️⃣ Убедитесь, что у него есть доступ к нужным вам чатам (в настройках бота).\n\n"
-        "<i>Как только вы это сделаете, я пришлю подтверждение об успешной активации!</i>"
+        "Для перехвата удаленных/измененных сообщений подключите бота к аккаунту.\n\n"
+        "⚙️ <b>Как подключить (3 шага):</b>\n"
+        "1️⃣ Настройки Telegram -> Telegram для бизнеса -> Чат-боты.\n"
+        "2️⃣ Вставьте мой юзернейм и добавьте.\n"
+        "3️⃣ Убедитесь, что есть доступ к нужным чатам.\n\n"
+        "🎛 <i>Настроить уведомления: /settings</i>"
     )
     await message.answer(instruction)
 
-# 3. УВЕДОМЛЕНИЯ ПРИ ПОДКЛЮЧЕНИИ И ОТКЛЮЧЕНИИ
+# 4. УВЕДОМЛЕНИЯ ПРИ ПОДКЛЮЧЕНИИ И ОТКЛЮЧЕНИИ
 @dp.business_connection()
 async def b_connection(connection: BusinessConnection):
     if connection.is_enabled:
@@ -71,7 +118,8 @@ async def b_connection(connection: BusinessConnection):
                 connection.user_chat_id,
                 "🔮 <b>ПОДКЛЮЧЕНИЕ УСПЕШНО</b>\n"
                 "━━━━━━━━━━━━━━━━━━━━\n"
-                "Система перехвата активирована. Теперь я слушаю ваши чаты в фоновом режиме и буду сохранять удаленные/измененные сообщения."
+                "Система перехвата активирована.\n\n"
+                "🎛 Управление модулями: /settings"
             )
         except Exception:
             pass
@@ -81,15 +129,10 @@ async def b_connection(connection: BusinessConnection):
             await bot.send_message(
                 connection.user_chat_id,
                 "🔌 <b>СИСТЕМА ОТКЛЮЧЕНА</b>\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "Вы удалили бота из Автоматизации чатов. Перехват сообщений полностью остановлен.\n\n"
-                "<i>Чтобы снова включить функции, добавьте меня обратно в настройках Telegram для бизнеса.</i>"
+                "Вы удалили бота из Автоматизации чатов."
             )
         except Exception:
             pass
-
-def get_owner(connection_id):
-    return connections_map.get(connection_id) or ADMIN_ID
 
 async def send_media_alert(target_id, alert_text, m_type, m_id):
     try:
@@ -106,10 +149,11 @@ async def send_media_alert(target_id, alert_text, m_type, m_id):
     except Exception:
         await bot.send_message(target_id, alert_text + "\n<i>(Медиафайл недоступен)</i>")
 
-# 4. КЭШИРОВАНИЕ
+# 5. КЭШИРОВАНИЕ И ОДНОРАЗОВЫЕ МЕДИА
 @dp.business_message()
 async def handle_messages(message: Message):
     owner_id = get_owner(message.business_connection_id)
+    settings = get_settings(owner_id)
     author_info = get_user_info(message.from_user)
     text = message.text or message.caption
     
@@ -140,8 +184,9 @@ async def handle_messages(message: Message):
         "media_type": media_type
     }
 
+    # Проверка одноразовых медиа (только если модуль включен)
     reply = message.reply_to_message
-    if reply:
+    if reply and settings["view_once"]:
         if reply.photo or reply.video or reply.video_note:
             reply_author_info = get_user_info(reply.from_user)
             try:
@@ -155,10 +200,15 @@ async def handle_messages(message: Message):
                     f"⚠️ <i>Факт отправки зафиксирован.</i>"
                 )
 
-# 5. ИЗМЕНЕННЫЕ СООБЩЕНИЯ
+# 6. ИЗМЕНЕННЫЕ СООБЩЕНИЯ
 @dp.edited_business_message()
 async def catch_edited(message: Message):
     owner_id = get_owner(message.business_connection_id)
+    settings = get_settings(owner_id)
+    
+    # Если модуль отключен - игнорируем
+    if not settings["edited"]: return
+
     cache_key = f"{message.chat.id}_{message.message_id}"
     original = msg_cache.get(cache_key)
     if not original: return
@@ -185,10 +235,15 @@ async def catch_edited(message: Message):
 
     msg_cache[cache_key]["text"] = new_display
 
-# 6. УДАЛЕННЫЕ СООБЩЕНИЯ И МЕДИА
+# 7. УДАЛЕННЫЕ СООБЩЕНИЯ И МЕДИА
 @dp.deleted_business_messages()
 async def catch_deleted(deleted: BusinessMessagesDeleted):
     owner_id = get_owner(deleted.business_connection_id)
+    settings = get_settings(owner_id)
+    
+    # Если модуль отключен - игнорируем
+    if not settings["deleted"]: return
+
     chat_id = deleted.chat.id
     
     for msg_id in deleted.message_ids:
@@ -219,7 +274,7 @@ async def catch_deleted(deleted: BusinessMessagesDeleted):
                     except Exception: pass
 
 async def main():
-    print("Уведомления о статусе подключения настроены.")
+    print("Бот с панелью настроек запущен.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
