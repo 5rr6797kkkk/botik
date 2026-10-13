@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import BusinessConnection, Message, BusinessMessagesDeleted, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.filters import Command # Добавлен импорт фильтра команд
 
 # Берем токен из скрытых переменных окружения
 TOKEN = os.getenv('BOT_TOKEN') 
@@ -16,9 +17,8 @@ dp = Dispatcher()
 msg_cache = {}        
 users_db = {}         
 connections_map = {} 
-user_settings = {} # Хранилище настроек пользователей
+user_settings = {} 
 
-# Вспомогательные функции
 def get_user_info(user):
     if not user:
         return "Собеседник"
@@ -31,11 +31,9 @@ def get_owner(connection_id):
 
 def get_settings(user_id):
     if user_id not in user_settings:
-        # По умолчанию все модули включены
         user_settings[user_id] = {"deleted": True, "edited": True, "view_once": True}
     return user_settings[user_id]
 
-# Клавиатура настроек
 def settings_keyboard(user_id):
     s = get_settings(user_id)
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -44,8 +42,8 @@ def settings_keyboard(user_id):
         [InlineKeyboardButton(text=f"{'🟢' if s['view_once'] else '🔴'} Одноразовые медиа", callback_data="set_view_once")]
     ])
 
-# 1. АДМИН-ПАНЕЛЬ
-@dp.message(F.text == "/admin")
+# 1. АДМИН-ПАНЕЛЬ (Используем Command)
+@dp.message(Command("admin"))
 async def admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
@@ -61,8 +59,8 @@ async def admin_panel(message: Message):
     text += "👁 <i>Глобальный мониторинг активен.</i>"
     await message.answer(text)
 
-# 2. МЕНЮ НАСТРОЕК
-@dp.message(F.text == "/settings")
+# 2. МЕНЮ НАСТРОЕК (Используем Command)
+@dp.message(Command("settings"))
 async def open_settings(message: Message):
     text = (
         "🎛 <b>ПАНЕЛЬ НАСТРОЕК</b>\n"
@@ -71,24 +69,20 @@ async def open_settings(message: Message):
     )
     await message.answer(text, reply_markup=settings_keyboard(message.from_user.id))
 
-# Обработка нажатий кнопок настроек
 @dp.callback_query(F.data.startswith("set_"))
 async def process_settings_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
     setting_key = callback.data.replace("set_", "")
     
-    # Меняем статус на противоположный
     current_settings = get_settings(user_id)
     current_settings[setting_key] = not current_settings[setting_key]
     
-    # Обновляем клавиатуру
     await callback.message.edit_reply_markup(reply_markup=settings_keyboard(user_id))
     
-    # Всплывающее уведомление
     status_text = "включен" if current_settings[setting_key] else "отключен"
     await callback.answer(f"Модуль {status_text}!", show_alert=False)
 
-# 3. ИНСТРУКЦИЯ ПРИ СТАРТЕ
+# 3. ИНСТРУКЦИЯ ПРИ СТАРТЕ (Остается в самом низу обработчиков @dp.message)
 @dp.message()
 async def private_messages(message: Message):
     users_db[message.from_user.id] = {
