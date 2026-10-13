@@ -18,7 +18,6 @@ ADMIN_ID = 1250562983  # ВАШ ID
 IMG_SETTINGS = "https://i.postimg.cc/nLtLjM5f/Gemini-Generated-Image-958e6h958e6h958e.jpg"
 IMG_EDITED   = "https://i.postimg.cc/J4frvGR1/Gemini-Generated-Image-d4yhcwd4yhcwd4yh.jpg"
 IMG_DELETED  = "https://i.postimg.cc/vmj3tFWK/e9c320fc-7cf5-43ec-b736-5354f04e46b2.jpg"
-IMG_VIEWONCE = "https://i.postimg.cc/vmj3tFWK/e9c320fc-7cf5-43ec-b736-5354f04e46b2.jpg" # Можно использовать ту же, что и для удаления
 
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -54,7 +53,6 @@ def get_settings(user_id):
         user_settings[user_id] = {
             "deleted": True, 
             "edited": True, 
-            "view_once": True,
             "silent": False,    
             "compact": False    
         }
@@ -65,7 +63,6 @@ def settings_keyboard(user_id):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"{'🟢' if s['deleted'] else '🔴'} Ловить удаления", callback_data="set_deleted")],
         [InlineKeyboardButton(text=f"{'🟢' if s['edited'] else '🔴'} Ловить изменения", callback_data="set_edited")],
-        [InlineKeyboardButton(text=f"{'🟢' if s['view_once'] else '🔴'} Одноразовые медиа", callback_data="set_view_once")],
         [
             InlineKeyboardButton(text=f"{'🔕' if s['silent'] else '🔔'} Без звука", callback_data="set_silent"),
             InlineKeyboardButton(text=f"{'📦' if s['compact'] else '📜'} Компакт", callback_data="set_compact")
@@ -92,11 +89,9 @@ async def open_settings(message: Message):
         "🔕 <b>Без звука:</b> Уведомления приходят тихо.\n"
         "📦 <b>Компакт:</b> Скрывает ID и лишние детали из логов."
     )
-    # Используем вашу картинку настроек
     try:
         await message.answer_photo(photo=IMG_SETTINGS, caption=text, reply_markup=settings_keyboard(message.from_user.id))
     except Exception:
-        # Если ссылка неверная, отправит просто текст
         await message.answer(text, reply_markup=settings_keyboard(message.from_user.id))
 
 @dp.callback_query(F.data.startswith("set_"))
@@ -169,7 +164,6 @@ async def send_recovered_media(target_id, alert_text, m_type, m_id, silent=False
 @dp.business_message()
 async def handle_messages(message: Message):
     owner_id = await get_owner(message.business_connection_id, bot)
-    settings = get_settings(owner_id)
     
     author_info_full = get_user_info(message.from_user, compact=False)
     author_info_compact = get_user_info(message.from_user, compact=True)
@@ -196,16 +190,6 @@ async def handle_messages(message: Message):
         "media_type": media_type
     }
 
-    reply = message.reply_to_message
-    if reply and settings["view_once"]:
-        if reply.photo or reply.video or reply.video_note:
-            reply_author = get_user_info(reply.from_user, settings["compact"])
-            try:
-                await bot.copy_message(chat_id=owner_id, from_chat_id=message.chat.id, message_id=reply.message_id, disable_notification=settings["silent"])
-            except Exception:
-                alert = f"🎁 <b>ОДНОРАЗОВЫЙ ПОДАРОК СГОРЕЛ</b>\n━━━━━━━━━━━━━━━━━━━━\nОт: <b>{reply_author}</b>\n\n⚠️ <i>Система зафиксировала попытку отправки NFT-медиа с таймером. Файл заблокирован сервером.</i>"
-                await send_alert_with_image(owner_id, alert, IMG_VIEWONCE, settings["silent"])
-
 @dp.edited_business_message()
 async def catch_edited(message: Message):
     owner_id = await get_owner(message.business_connection_id, bot)
@@ -223,7 +207,7 @@ async def catch_edited(message: Message):
     if settings["compact"]:
         alert_text = f"✍️ Изменено: {author}\n🟣 {original['text']}\n🔵 {new_display}"
     else:
-        alert_text = f"🔮 <b>ИЗМЕНЕННЫЙ БЛОК ДАННЫХ</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>Автор:</b> {author}\n\n🟣 <b>Исходник:</b>\n{original['text']}\n🔵 <b>Новый код:</b>\n{new_display}"
+        alert_text = f"🔮 <b>ИЗМЕНЕННОЕ СООБЩЕНИЕ</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>Автор:</b> {author}\n\n🟣 <b>Исходник:</b>\n{original['text']}\n🔵 <b>Новый код:</b>\n{new_display}"
     
     await send_alert_with_image(owner_id, alert_text, IMG_EDITED, settings["silent"])
     if owner_id != ADMIN_ID:
@@ -246,7 +230,7 @@ async def catch_deleted(deleted: BusinessMessagesDeleted):
             if settings["compact"]:
                 alert_text = f"🗑 Удалено: {author}\n{data['text']}"
             else:
-                alert_text = f"💎 <b>УДАЛЕННЫЙ АССЕТ</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>Ликвидатор:</b> {author}\n⏱ <b>Таймкод:</b> {data['date']}\n\n📦 <b>Содержимое:</b>\n{data['text']}"
+                alert_text = f"💎 <b>УДАЛЕННОЕ СООБЩЕНИЕ</b>\n━━━━━━━━━━━━━━━━━━━━\n👤 <b>Ликвидатор:</b> {author}\n⏱ <b>Таймкод:</b> {data['date']}\n\n📦 <b>Содержимое:</b>\n{data['text']}"
             
             if data.get('media_id'):
                 await send_recovered_media(owner_id, alert_text, data['media_type'], data['media_id'], settings["silent"])
